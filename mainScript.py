@@ -5,10 +5,11 @@ from Object import Object
 from Scene import Scene
 import matplotlib.pyplot as plt
 
+
 cameraPos = np.array([0,0,-1])
 screenPos = np.array([0,0,0])
 lightPos = np.array([-1,0,2])
-Scene = Scene(cameraPos,screenPos,np.array([1,1]),np.array([200,200]))
+Scene = Scene(cameraPos,screenPos,np.array([1,1]),np.array([400,400]))
 
 #add sphere to scene
 green = np.array([0,0.9,0])
@@ -28,7 +29,11 @@ Scene.sortObjectsByDistance()
 
 lightPositions = Scene.lights[0].spinLight(1,30)
 for i in range(lightPositions.shape[0]):
-    Scene.lights[0].center = lightPositions[i,:]
-    Scene.render()
-    plt.savefig(str(i)+'.png')
+    if __name__ == "__main__":
+        print(i)
+        Scene.lights[0].center = lightPositions[i,:]
+        pixelColors = Scene.render()
+        plt.imshow(pixelColors)
+        plt.savefig(str(i)+'.png')
+
 #plt.show()

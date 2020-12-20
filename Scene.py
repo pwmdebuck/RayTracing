@@ -5,6 +5,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from Object import Object
 from Light import Light
+from multiprocessing import Pool
+from itertools import repeat
 
 white = np.array([1,1,1])
 black = np.array([0,0,0])
@@ -13,6 +15,9 @@ def normalized(a, axis=-1, order=2):
     l2 = np.atleast_1d(np.linalg.norm(a, order, axis))
     l2[l2==0] = 1
     return a / np.expand_dims(l2, axis)
+
+
+
 
 class Scene:
     def __init__(self,cameraPos,screenPos,screenSize,screenRes,lightColor=white):
@@ -77,65 +82,80 @@ class Scene:
 
         #compute directions of the rays from camera to scene
         #self.rays = np.zeros((screenRes[0],screenRes[1],2))
+        index = 0
+        maxIndex = self.screenRes[0]*self.screenRes[1]
+        indexVector = np.arange(0,maxIndex)
+        p = Pool(16)
+        out = p.starmap(Scene.getPixelColor,zip(repeat(self),indexVector))
+        p.close()
+        p.join()
         
-        for i in range(self.screenRes[0]):
-            for j in range(self.screenRes[1]):
-                if i%100 == 0 and j%100 == 0:
-                    print('Pixel:',i,j)
-                #get pixel center location
-                px = self.pixelCenter_xx[0][i]
-                py = self.pixelCenter_yy[j][0]
-                pixelCenter = np.array([px,py,self.screenPos[2]])
+        for index in range(len(out)):
+            i = index%self.screenRes[0]
+            j = np.floor_divide(index,self.screenRes[0])
+            self.pixelColors[i,j,:] = out[index]
 
-                #compute direction of the ray from camera to scene
-                rayDirection = normalized(pixelCenter-self.cameraPos)[0]
+        # plt.figure()
+        # plt.imshow(self.pixelColors)
+        return self.pixelColors
+    
 
-                #check if the ray collided with any objects
-                nearestObjectDist,nearestObject =  self.getNearestIntersectingObject(self.cameraPos,rayDirection)
                 
+    def getPixelColor(self,index):
+        #get pixel center location
+        i = index%self.screenRes[0]
+        j = np.floor_divide(index,self.screenRes[0])
 
-                if nearestObject is not None:
-                    for l in range(len(self.lights)):
-                        light = self.lights[l]
-                        interSectionPoint = self.cameraPos+nearestObjectDist*rayDirection
+        px = self.pixelCenter_xx[0][i]
+        py = self.pixelCenter_yy[j][0]
+        pixelCenter = np.array([px,py,self.screenPos[2]])
 
-                        #offset intersectionpoint from surface slightly
-                        normal = normalized(interSectionPoint-nearestObject.center)[0]
-                        interSectionPoint = interSectionPoint + 1e-5*normal
+        #compute direction of the ray from camera to scene
+        rayDirection = normalized(pixelCenter-self.cameraPos)[0]
 
-                        #check if there are any objects in between the bounce point and the light
-                        interSectionToLightVector = light.center-interSectionPoint
-                        bounceDirection = normalized(interSectionToLightVector)[0]
+        #check if the ray collided with any objects
+        nearestObjectDist,nearestObject =  self.getNearestIntersectingObject(self.cameraPos,rayDirection)
+        
 
-                        #print(i,j,interSectionPoint,bounceDirection)
+        if nearestObject is not None:
+            for l in range(len(self.lights)):
+                light = self.lights[l]
+                interSectionPoint = self.cameraPos+nearestObjectDist*rayDirection
 
-                        nearestBounceObjectDist,_ = self.getNearestIntersectingObject(interSectionPoint,bounceDirection)
-                        bounceToLightDist = np.linalg.norm(interSectionToLightVector)
+                #offset intersectionpoint from surface slightly
+                normal = normalized(interSectionPoint-nearestObject.center)[0]
+                interSectionPoint = interSectionPoint + 1e-5*normal
 
-                        #if there is an object in between we are in shade
-                        #the pixel is already black so we dont do anything
+                #check if there are any objects in between the bounce point and the light
+                interSectionToLightVector = light.center-interSectionPoint
+                bounceDirection = normalized(interSectionToLightVector)[0]
 
-                        #if there is no object, the pixel will be the color of the object
-                        # print(nearestBounceObjectDist,)
-                        if nearestBounceObjectDist > bounceToLightDist:
-                            #self.pixelColors[i,j,:] = nearestObject.diffuseColor
+                #print(i,j,interSectionPoint,bounceDirection)
 
-                            L = bounceDirection
-                            N = normal
-                            V = -rayDirection
-                            color = np.zeros(3)
-                            color += nearestObject.ambientColor*light.ambientColor
-                            color += nearestObject.diffuseColor*light.diffuseColor*np.dot(L,N)
-                            temp = normalized(L+V)[0]
-                            color += nearestObject.specularColor*light.specularColor*(np.dot(N,temp)**(nearestObject.shinyness/4))
-                            color = np.clip(color,0,1)
-                            self.pixelColors[i,j,:] = color
+                nearestBounceObjectDist,_ = self.getNearestIntersectingObject(interSectionPoint,bounceDirection)
+                bounceToLightDist = np.linalg.norm(interSectionToLightVector)
 
-        # print(self.pixelColors)
-        plt.figure()
-        plt.imshow(self.pixelColors)
-                
+                #if there is an object in between we are in shade
+                #the pixel is already black so we dont do anything
 
+                #if there is no object, the pixel will be the color of the object
+                # print(nearestBounceObjectDist,)
+                if nearestBounceObjectDist > bounceToLightDist:
+                    #self.pixelColors[i,j,:] = nearestObject.diffuseColor
+
+                    L = bounceDirection
+                    N = normal
+                    V = -rayDirection
+                    color = np.zeros(3)
+                    color += nearestObject.ambientColor*light.ambientColor
+                    color += nearestObject.diffuseColor*light.diffuseColor*np.dot(L,N)
+                    temp = normalized(L+V)[0]
+                    color += nearestObject.specularColor*light.specularColor*(np.dot(N,temp)**(nearestObject.shinyness/4))
+                    color = np.clip(color,0,1)
+                    # print(color)
+                    # self.pixelColors[i,j,:] = color
+                    return color
+        return np.array([0,0,0])
     
     def addObject(self,center,radius,**kwargs):
         self.objects.append(Object(center,radius,**kwargs))
@@ -146,10 +166,6 @@ class Scene:
     def sortObjectsByDistance(self):
         for obj in self.objects:
             obj.minDistFromCamera = np.linalg.norm(obj.center-self.cameraPos)-obj.radius
-            print(obj.diffuseColor,obj.minDistFromCamera)
 
         self.objects.sort(key=lambda x: x.minDistFromCamera)
-
-
-
 

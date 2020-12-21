@@ -3,7 +3,7 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
-from Object import Object
+from Object import Object,Sphere,Plane
 from Light import Light
 from multiprocessing import Pool
 from itertools import repeat
@@ -26,6 +26,7 @@ class Scene:
         self.screenSize = screenSize
         self.screenRes = screenRes
         self.lightColor = lightColor
+        self.bounceLimit = 4
 
         self.pixelColors = np.zeros((screenRes[0],screenRes[1],3))
 
@@ -76,7 +77,7 @@ class Scene:
 
         return nearestObjectDist,nearestObject
 
-    def render(self):
+    def renderMulti(self):
         #black canvas
         self.pixelColors = np.zeros((self.screenRes[0],self.screenRes[1],3))
 
@@ -98,6 +99,29 @@ class Scene:
         # plt.figure()
         # plt.imshow(self.pixelColors)
         return self.pixelColors
+
+    def renderSingle(self,lightPos,index):
+        print(lightPos,index)
+        fig = plt.figure(figsize=(8,8))
+        self.lights[0].center = lightPos
+        #black canvas
+        self.pixelColors = np.zeros((self.screenRes[0],self.screenRes[1],3))
+
+        #compute directions of the rays from camera to scene
+        #self.rays = np.zeros((screenRes[0],screenRes[1],2))
+        
+        for i in range(self.screenRes[0]):
+            for j in range(self.screenRes[1]):
+                self.pixelColors[i,j,:] = self.getPixelColor(j*self.screenRes[0]+i)
+
+        # plt.figure()
+        ax = plt.Axes(fig, [0., 0., 1., 1.])
+        ax.set_axis_off()
+        fig.add_axes(ax)
+        plt.imshow(self.pixelColors)
+        #plt.tight_layout()
+        plt.savefig(str(index)+'.png',dpi=800)
+        return self.pixelColors
     
 
                 
@@ -105,6 +129,8 @@ class Scene:
         #get pixel center location
         i = index%self.screenRes[0]
         j = np.floor_divide(index,self.screenRes[0])
+
+        color = np.zeros(3)
 
         px = self.pixelCenter_xx[0][i]
         py = self.pixelCenter_yy[j][0]
@@ -114,51 +140,72 @@ class Scene:
         rayDirection = normalized(pixelCenter-self.cameraPos)[0]
 
         #check if the ray collided with any objects
-        nearestObjectDist,nearestObject =  self.getNearestIntersectingObject(self.cameraPos,rayDirection)
-        
+        startPoint = self.cameraPos
 
-        if nearestObject is not None:
-            for l in range(len(self.lights)):
-                light = self.lights[l]
-                interSectionPoint = self.cameraPos+nearestObjectDist*rayDirection
+        reflection = 1
 
-                #offset intersectionpoint from surface slightly
-                normal = normalized(interSectionPoint-nearestObject.center)[0]
-                interSectionPoint = interSectionPoint + 1e-5*normal
+        for k in range(self.bounceLimit):
+            nearestObjectDist,nearestObject =  self.getNearestIntersectingObject(startPoint,rayDirection)
 
-                #check if there are any objects in between the bounce point and the light
-                interSectionToLightVector = light.center-interSectionPoint
-                bounceDirection = normalized(interSectionToLightVector)[0]
+            if nearestObject is not None:
+                for l in range(len(self.lights)):
+                    light = self.lights[l]
+                    interSectionPoint = startPoint+nearestObjectDist*rayDirection
 
-                #print(i,j,interSectionPoint,bounceDirection)
+                    #offset intersectionpoint from surface slightly
+                    normal = normalized(interSectionPoint-nearestObject.center)[0]
+                    interSectionPoint = interSectionPoint + 1e-5*normal
 
-                nearestBounceObjectDist,_ = self.getNearestIntersectingObject(interSectionPoint,bounceDirection)
-                bounceToLightDist = np.linalg.norm(interSectionToLightVector)
+                    #check if there are any objects in between the bounce point and the light
+                    interSectionToLightVector = light.center-interSectionPoint
+                    bounceDirection = normalized(interSectionToLightVector)[0]
 
-                #if there is an object in between we are in shade
-                #the pixel is already black so we dont do anything
+                    #print(i,j,interSectionPoint,bounceDirection)
 
-                #if there is no object, the pixel will be the color of the object
-                # print(nearestBounceObjectDist,)
-                if nearestBounceObjectDist > bounceToLightDist:
-                    #self.pixelColors[i,j,:] = nearestObject.diffuseColor
+                    nearestBounceObjectDist,_ = self.getNearestIntersectingObject(interSectionPoint,bounceDirection)
+                    bounceToLightDist = np.linalg.norm(interSectionToLightVector)
 
-                    L = bounceDirection
-                    N = normal
-                    V = -rayDirection
-                    color = np.zeros(3)
-                    color += nearestObject.ambientColor*light.ambientColor
-                    color += nearestObject.diffuseColor*light.diffuseColor*np.dot(L,N)
-                    temp = normalized(L+V)[0]
-                    color += nearestObject.specularColor*light.specularColor*(np.dot(N,temp)**(nearestObject.shinyness/4))
-                    color = np.clip(color,0,1)
-                    # print(color)
-                    # self.pixelColors[i,j,:] = color
-                    return color
-        return np.array([0,0,0])
+                    #if there is an object in between we are in shade
+                    #the pixel is already black so we dont do anything
+
+                    #if there is no object, the pixel will be the color of the object
+                    # print(nearestBounceObjectDist,)
+                    if nearestBounceObjectDist > bounceToLightDist:
+                        #self.pixelColors[i,j,:] = nearestObject.diffuseColor
+
+                        L = bounceDirection
+                        N = normal
+                        V = -rayDirection
+
+                        illumination = np.zeros(3)
+                        
+                        illumination += nearestObject.ambientColor*light.ambientColor
+                        illumination += nearestObject.diffuseColor*light.diffuseColor*np.dot(L,N)
+                        temp = normalized(L+V)[0]
+                        illumination += nearestObject.specularColor*light.specularColor*(np.dot(N,temp)**(nearestObject.shinyness/4))
+                        illumination = np.clip(illumination,0,1)
+                        # print(color)
+                        # self.pixelColors[i,j,:] = color
+                        
+                        color += reflection*illumination
+                        reflection = reflection*nearestObject.reflection
+                        if reflection<=0.01:
+                            return np.clip(color,0,1)
+
+                        startPoint = interSectionPoint
+                        rayDirection = self.reflection(rayDirection,normal)
+            else:
+                return np.clip(color,0,1)
+        return np.clip(color,0,1)
+
+    def reflection(self,rayDirection,normal):
+        return rayDirection - 2 *np.dot(rayDirection, normal)*normal
     
-    def addObject(self,center,radius,**kwargs):
-        self.objects.append(Object(center,radius,**kwargs))
+    def addSphere(self,center,radius,**kwargs):
+        self.objects.append(Sphere(center,radius,**kwargs))
+
+    def addPlane(self,center,normal,**kwargs):
+        self.objects.append(Plane(center,normal,**kwargs))
 
     def addLight(self,center,**kwargs):
         self.lights.append(Light(center,**kwargs))

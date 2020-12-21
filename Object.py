@@ -16,8 +16,8 @@ class Object:
         self.reflection = reflection
 
 class Sphere(Object):
-    def __init__(self,center,radius,ambientColor,diffuseColor,specularColor,shinyness,reflection):
-        super().__init__(center,'sphere',ambientColor,diffuseColor,specularColor,shinyness,reflection)
+    def __init__(self,center,radius,**kwargs):
+        super().__init__(center,'sphere',**kwargs)
         self.radius = radius
 
     def intersect(self,rayOrigin,rayDirection):
@@ -25,8 +25,8 @@ class Sphere(Object):
         b = 2*np.dot(rayDirection,OminC)
         c = np.linalg.norm(OminC)**2 - self.radius**2
         delta = b**2-4*c
-        sqrtdelta = np.sqrt(delta)
         if delta>0:
+            sqrtdelta = np.sqrt(delta)
             d1 = 0.5*(-b+sqrtdelta)
             d2 = 0.5*(-b-sqrtdelta)
             if d1 > 0 and d2 > 0:
@@ -34,19 +34,15 @@ class Sphere(Object):
         return None
 
 class Plane(Object):
-    def __init__(self,center,normal,ambientColor=fadedred,diffuseColor=red,specularColor=white,shinyness=0.0,reflection=0.0)):
-        super().__init__(center,ambientColor,diffuseColor,specularColor,shinyness,reflection)
-        self.radius = radius
+    def __init__(self,center,normal,**kwargs):
+        super().__init__(center,'sphere',**kwargs)
+        self.normal = normal
 
     def intersect(self,rayOrigin,rayDirection):
-        OminC = rayOrigin-self.center
-        b = 2*np.dot(rayDirection,OminC)
-        c = np.linalg.norm(OminC)**2 - self.radius**2
-        delta = b**2-4*c
-        sqrtdelta = np.sqrt(delta)
-        if delta>0:
-            d1 = 0.5*(-b+sqrtdelta)
-            d2 = 0.5*(-b-sqrtdelta)
-            if d1 > 0 and d2 > 0:
-                return np.minimum(d1,d2)
+        denom = np.dot(self.normal,rayDirection)
+        if denom > 1e-6:
+            CminO = self.center-rayOrigin
+            t= np.dot(CminO,self.normal)/denom
+            if t>0:
+                return t
         return None
